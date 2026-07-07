@@ -1,0 +1,10 @@
+import { Request, Response, NextFunction, RequestHandler } from 'express';
+
+type AsyncFn = (req: Request, res: Response, next: NextFunction) => Promise<unknown>;
+
+// Wraps async controllers so thrown/rejected errors go straight to the global error handler
+export const catchAsync = (fn: AsyncFn): RequestHandler => {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+};
