@@ -7,14 +7,57 @@ import { requirePermission } from "../../middlewares/permission.middleware";
 
 const router = Router();
 
-// All dashboard routes require authentication + dashboard:read permission
-// (Admin & Manager have it by default — see DEFAULT_ROLE_PERMISSIONS)
 router.use(isAuthenticated);
 router.use(requirePermission("dashboard:read"));
 
+/**
+ * @swagger
+ * /dashboard/stats:
+ *   get:
+ *     tags:
+ *       - Dashboard
+ *     summary: Get dashboard statistics
+ *     description: Returns overall dashboard metrics such as total sales, revenue, customers and products.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dashboard statistics retrieved successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
 router.get("/stats", DashboardController.getStats);
 
-// Bonus: revenue-by-day trend, e.g. GET /dashboard/revenue-trend?days=14
+/**
+ * @swagger
+ * /dashboard/revenue-trend:
+ *   get:
+ *     tags:
+ *       - Dashboard
+ *     summary: Get revenue trend
+ *     description: Returns revenue trend data for the specified number of days.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         required: false
+ *         schema:
+ *           type: number
+ *           example: 14
+ *         description: Number of days to analyze revenue trend
+ *     responses:
+ *       200:
+ *         description: Revenue trend retrieved successfully
+ *       400:
+ *         description: Invalid query parameter
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
 router.get(
   "/revenue-trend",
   validate(revenueTrendQuerySchema),
