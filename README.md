@@ -1,352 +1,411 @@
-# Mini ERP — Inventory & Sales Management System
+# Mini ERP — Inventory & Sales Management System API
 
-Full-stack MERN technical assessment project. A small ERP for tracking products, customers, and sales with role-based access control.
+Backend API for a full-stack MERN-based ERP system used to manage products, customers, sales, and users with dynamic role-based access control.
 
-- **Backend**: `backend/` — Node.js, Express, TypeScript, MongoDB/Mongoose, JWT auth, Socket.IO
-- **Frontend**: `frontend/` — React, TypeScript, Vite, Tailwind CSS, Redux Toolkit, TanStack Query
+## Overview
 
-See `backend/README.md` and `frontend/README.md` for setup instructions specific to each, and `API_DOCUMENTATION.md` for the full API reference.
+Mini ERP is a modular Inventory & Sales Management System built with Node.js, Express, TypeScript, MongoDB, and JWT authentication. The system supports product management, customer management, transactional sales processing, dashboard analytics, real-time events, and database-driven role & permission management.
 
-## Quick start (local development)
+### Core Features
 
-```bash
-# 1. Backend
-cd backend
-npm install
-cp .env.example .env     # fill in MongoDB URI, JWT secrets, Cloudinary credentials
-npx ts-node src/seed.ts  # creates default roles + the first Admin account
-npm run dev              # http://localhost:5000
+* JWT Authentication (Access + Refresh Tokens)
+* Dynamic Role & Permission Management
+* Product CRUD with Cloudinary Image Upload
+* Customer Management
+* Transactional Sales Processing
+* Real-time Socket.IO Events
+* Dashboard Analytics
+* Search, Filter, Sort & Pagination
+* Soft Delete & Restore Support
+* User Management (Admin Only)
+* Global Error Handling
+* Modular Feature-Based Architecture
 
-# 2. Frontend (separate terminal)
-cd frontend
-npm install
-cp .env.example .env     # point VITE_API_BASE_URL at the backend above
-npm run dev               # http://localhost:5173
+---
+
+## Tech Stack
+
+* Node.js
+* Express.js
+* TypeScript
+* MongoDB + Mongoose
+* JWT Authentication
+* Zod Validation
+* Cloudinary
+* Socket.IO
+
+---
+
+## Architecture
+
+```text
+src/
+├── config/          # db connection, env loader, cloudinary, socket.io setup
+├── middlewares/     # auth, permission, validation, global error handler
+├── modules/
+│   ├── auth/        # login, refresh, logout, /me
+│   ├── user/        # user + role management
+│   ├── product/     # product CRUD, image upload, stock adjustment
+│   ├── customer/    # customer CRUD
+│   ├── sale/        # sale creation, refund
+│   └── dashboard/   # analytics & reports
+├── routes/          # central route mounting
+├── types/           # shared types
+├── utils/           # ApiError, ApiResponse, QueryBuilder
+├── app.ts
+├── server.ts
+└── seed.ts
 ```
 
-Log in with the Admin credentials printed by the seed script (default: `admin@miniERP.com` / `Admin@12345`, unless overridden via `ADMIN_EMAIL`/`ADMIN_PASSWORD` in `backend/.env`).
+---
 
-## Roles
+## Key Architectural Decisions
 
-| Role | Can do |
-|---|---|
-| Admin | Everything — products, customers, sales, dashboard, and user management (create/update/deactivate Manager & Employee accounts) |
-| Manager | Manage products & customers, create sales, view dashboard |
-| Employee | View products & customers, create sales, view dashboard |
+### Dynamic Role & Permission Management
 
-Admin can create/manage Manager and Employee accounts from the **Users** page in the sidebar (visible only to Admin).
+Roles are stored in the database rather than hardcoded.
 
-## Feature highlights
+Example permissions:
 
-- JWT auth with silent refresh-token retry on the frontend
-- Dynamic, database-driven roles & permissions (not hardcoded)
-- Product CRUD with required image upload (Cloudinary), search, pagination
-- Sale creation with transactional stock deduction, automatic total calculation, and real-time Socket.IO events
-- Dashboard with live stats, low-stock alerts, revenue trend chart, and top-selling products
-- CSV and PDF export (including a printable per-sale invoice PDF)
-- Dark mode
-- Admin user management (bonus)
+```text
+product:read
+product:create
+product:update
+product:delete
 
-## Live deployment
+customer:read
+customer:create
+customer:update
+customer:delete
 
-| | URL |
-|---|---|
-| Frontend | _fill in after deploying_ |
-| Backend API | _fill in after deploying_ |
+sale:read
+sale:create
 
-## Admin credentials (for evaluation)
+dashboard:read
 
+role:manage
 ```
-Email: admin@miniERP.com
-Password: Admin@12345
-```
-(or whatever `ADMIN_EMAIL` / `ADMIN_PASSWORD` were set to in the deployed backend's environment variables)
-# Mini ERP — API Documentation
 
-Base URL: `http://localhost:5000/api/v1` (or your deployed backend URL + `/api/v1`)
+Permissions are validated through middleware, allowing role updates without code changes.
 
-## Conventions
+---
 
-**Every response** is wrapped in a consistent envelope:
+### Generic QueryBuilder
+
+Reusable utility supporting:
+
+* Search
+* Filtering
+* Sorting
+* Pagination
+
+Used across Product, Customer, and Sales modules.
+
+---
+
+### Consistent API Responses
+
+Success:
 
 ```json
 {
   "success": true,
   "statusCode": 200,
-  "message": "Human-readable message",
-  "data": { "...": "..." },
-  "meta": {
-    "page": 1,
-    "limit": 10,
-    "total": 42,
-    "totalPages": 5,
-    "hasNextPage": true,
-    "hasPrevPage": false
-  }
+  "message": "Operation successful",
+  "data": {}
 }
 ```
-`meta` is only present on paginated list endpoints.
 
-**Errors** follow the same envelope shape with `success: false`:
+Error:
+
 ```json
 {
   "success": false,
   "statusCode": 400,
-  "message": "Validation failed",
-  "errors": [{ "path": "body.email", "message": "Invalid email address" }]
+  "message": "Validation failed"
 }
 ```
 
-**Authentication**: send `Authorization: Bearer <accessToken>` on every protected route (all routes except `POST /auth/login` and `POST /auth/refresh`).
+---
 
-**Permissions**: routes are additionally gated by permission strings (e.g. `product:read`). A user without the required permission gets `403 Forbidden`. See the backend README for the default role → permission mapping.
+### Transactional Sales
+
+Sales are processed using MongoDB transactions.
+
+The system:
+
+1. Validates stock
+2. Deducts inventory
+3. Creates sale record
+4. Commits transaction
+
+If any step fails, everything is rolled back automatically.
 
 ---
 
-## Auth
+### Real-Time Updates
 
-### `POST /auth/login`
-Public.
+Socket.IO emits:
 
-**Body**
-```json
-{ "email": "admin@miniERP.com", "password": "Admin@12345" }
+```text
+newSale
+lowStockAlert
 ```
 
-**Response `200`**
-```json
-{
-  "success": true,
-  "statusCode": 200,
-  "message": "Login successful",
-  "data": {
-    "accessToken": "eyJ...",
-    "refreshToken": "eyJ...",
-    "user": {
-      "id": "665...",
-      "name": "Super Admin",
-      "email": "admin@miniERP.com",
-      "role": "Admin",
-      "permissions": ["product:read", "product:create", "...", "role:manage"]
-    }
-  }
-}
-```
-
-### `POST /auth/refresh`
-Public. Exchanges a valid refresh token for a new access/refresh token pair.
-
-**Body**
-```json
-{ "refreshToken": "eyJ..." }
-```
-
-### `POST /auth/logout`
-Protected. Invalidates the current session (bumps `tokenVersion`).
-
-### `GET /auth/me`
-Protected. Returns the current authenticated user's profile.
+Connected dashboards receive live updates instantly.
 
 ---
 
-## Users (Admin only — `role:manage`)
+## Default Roles
 
-Manager and Employee accounts are provisioned here since there is no public registration.
+| Role     | Permissions                                           |
+| -------- | ----------------------------------------------------- |
+| Admin    | Full system access including user & role management   |
+| Manager  | Manage products, customers, sales, dashboard          |
+| Employee | Read products/customers, create sales, view dashboard |
 
-### `GET /users`
-Returns all user accounts (password field excluded).
-
-### `GET /users/:id`
-Returns a single user by id.
-
-### `POST /users`
-**Body**
-```json
-{
-  "name": "Jane Doe",
-  "email": "jane@example.com",
-  "password": "SecurePass123",
-  "role": "Manager"
-}
-```
-`role` must match an existing `Role.name` (`Admin`, `Manager`, `Employee`, or any custom role created in the DB).
-
-### `PATCH /users/:id`
-**Body** (all fields optional)
-```json
-{ "name": "Jane D.", "role": "Employee", "isActive": true, "password": "NewPass123" }
-```
-
-### `DELETE /users/:id`
-Soft-deactivates the account (`isActive: false`) and invalidates existing sessions. Does not hard-delete, to preserve audit history.
+Roles are stored in MongoDB and can be modified without changing application code.
 
 ---
 
-## Products
+## User Management
 
-Permissions: `product:read` (GET), `product:create` (POST), `product:update` (PATCH), `product:delete` (DELETE).
+Public registration is intentionally disabled.
 
-### `GET /products`
-Query params (all optional):
+Only Admin users can create:
 
-| Param | Example | Description |
-|---|---|---|
-| `search` | `search=onion` | matches name/SKU |
-| `category` | `category=Food` | exact match |
-| `page` | `page=2` | default `1` |
-| `limit` | `limit=10` | default `10` |
-| `sort` | `sort=-createdAt` | `-` prefix = descending |
+* Manager Accounts
+* Employee Accounts
 
-**Response**: paginated array of products (see `meta`).
+Endpoint access is protected by:
 
-### `GET /products/:id`
-Single product.
-
-### `POST /products`
-`Content-Type: multipart/form-data`. **Image is required on create.**
-
-| Field | Type | Required |
-|---|---|---|
-| `name` | string | yes |
-| `sku` | string | yes |
-| `category` | string | yes |
-| `price` | number | yes (selling price) |
-| `costPrice` | number | no (purchase price) |
-| `stock` | number | yes |
-| `lowStockThreshold` | number | no |
-| `unit` | string | no |
-| `description` | string | no |
-| `images` | file(s) | yes on create — field name `images`, up to 5 |
-
-### `PATCH /products/:id`
-Same fields as create, all optional. `multipart/form-data` if replacing images. `removeImages` (comma-separated public IDs or array) removes existing images.
-
-### `PATCH /products/:id/stock`
-Manually adjust stock (e.g. restock). 
-```json
-{ "quantity": 50 }
+```text
+role:manage
 ```
 
-### `PATCH /products/:id/restore`
-Restores a soft-deleted product.
-
-### `DELETE /products/:id`
-Soft delete (sets `isActive: false`).
+permission.
 
 ---
 
-## Customers
+## Prerequisites
 
-Permissions: `customer:read`, `customer:create`, `customer:update`, `customer:delete`.
-
-### `GET /customers`
-Query params: `search` (name/phone), `page`, `limit`, `sort`.
-
-### `POST /customers`
-```json
-{ "name": "John Smith", "phone": "01700000000", "email": "john@example.com", "address": "Dhaka" }
-```
-`phone` and `name` required; `email`/`address` optional.
-
-### `PATCH /customers/:id`
-Same fields, all optional.
-
-### `PATCH /customers/:id/restore`
-Restores a soft-deleted customer.
-
-### `DELETE /customers/:id`
-Soft delete.
+* Node.js 18+
+* MongoDB
+* Cloudinary Account
 
 ---
 
-## Sales
+## Installation
 
-Permissions: `sale:read` (GET), `sale:create` (POST + refund).
-
-### `GET /sales`
-Query params: `page`, `limit`, `sort`.
-
-### `GET /sales/:id`
-Single sale with populated customer and line items.
-
-### `POST /sales`
-Runs inside a MongoDB transaction: validates stock availability for every line item, decrements stock, computes totals, and persists the sale atomically. Emits a `newSale` socket event (and `lowStockAlert` if any affected product drops below its threshold).
-
-```json
-{
-  "customer": "665f1...",
-  "items": [
-    { "product": "665f2...", "quantity": 3 },
-    { "product": "665f3...", "quantity": 1 }
-  ],
-  "discount": 50,
-  "tax": 20,
-  "paymentMethod": "cash"
-}
+```bash
+npm install
+cp .env.example .env
 ```
-`paymentMethod` is one of `cash | card | mobile_banking | bank_transfer` (optional, defaults to `cash`). Returns `400` if any product has insufficient stock — no partial deduction occurs.
-
-**Response** includes `invoiceNumber` (format `INV-YYYYMMDD-XXXX`), `subtotal`, `discount`, `tax`, `grandTotal`, and the line items.
-
-### `PATCH /sales/:id/refund`
-Reverses a sale: restores stock for each line item and reverses the customer's running total. Bonus feature, not in the original spec.
 
 ---
 
-## Dashboard
+## Environment Variables
 
-Permission: `dashboard:read` (Admin, Manager, and Employee by default).
+```env
+NODE_ENV=development
+PORT=5000
 
-### `GET /dashboard/stats`
-```json
-{
-  "totalProducts": 24,
-  "totalCustomers": 12,
-  "totalSales": 37,
-  "totalRevenue": 360205,
-  "lowStockCount": 3,
-  "lowStockProducts": [
-    { "_id": "...", "name": "Onion", "sku": "ONI-ON", "stock": 2, "category": "Food" }
-  ],
-  "topSellingProducts": [
-    { "productId": "...", "name": "Onion", "sku": "ONI-ON", "unitsSold": 26, "revenue": 16900 }
-  ],
-  "salesOverview": {
-    "totalSalesCount": 37,
-    "totalGrandTotal": 360205,
-    "totalDiscount": 1200,
-    "totalTax": 800,
-    "averageOrderValue": 9735.27
-  }
-}
+MONGO_URI=
+
+JWT_ACCESS_SECRET=
+JWT_REFRESH_SECRET=
+JWT_ACCESS_EXPIRES_IN=55m
+JWT_REFRESH_EXPIRES_IN=7d
+
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+
+CLIENT_URL=http://localhost:5173
+
+ADMIN_NAME=Super Admin
+ADMIN_EMAIL=admin@miniERP.com
+ADMIN_PASSWORD=Admin@12345
 ```
-`totalRevenue` is **all-time**. `lowStockProducts` uses a fixed threshold (stock < 5) per the spec, independent of a product's own `lowStockThreshold` field.
-
-### `GET /dashboard/revenue-trend?days=7`
-Bonus endpoint powering the frontend chart. `days` optional, default `7`.
-```json
-[
-  { "date": "2026-07-01", "revenue": 22000, "orders": 3 },
-  { "date": "2026-07-02", "revenue": 25500, "orders": 4 }
-]
-```
-Only includes days within the requested window — this is why it can differ from the all-time `totalRevenue` figure on `/dashboard/stats`.
 
 ---
 
-## HTTP status codes used
+## Database Seeding
 
-| Code | Meaning |
-|---|---|
-| `200` | success (GET/PATCH/DELETE) |
-| `201` | resource created (POST) |
-| `400` | validation error / bad request (e.g. insufficient stock) |
-| `401` | missing/invalid/expired access token |
-| `403` | authenticated but missing the required permission |
-| `404` | resource not found |
-| `409` | conflict (e.g. duplicate email/SKU) |
-| `500` | unexpected server error |
+Create default roles and first Admin account:
 
-## Postman / testing
+```bash
+npx ts-node src/seed.ts
+```
 
-Import the base URL above and set an `Authorization` header with the token returned from `/auth/login`. Refresh tokens rotate on every `/auth/refresh` call.
+This command safely:
+
+* Creates Admin role
+* Creates Manager role
+* Creates Employee role
+* Creates first Admin user (if not exists)
+
+Default Admin Credentials:
+
+```text
+Email: admin@miniERP.com
+Password: Admin@12345
+```
+
+Can be overridden using:
+
+```env
+ADMIN_EMAIL
+ADMIN_PASSWORD
+```
+
+---
+
+## Running the Application
+
+Development:
+
+```bash
+npm run dev
+```
+
+Build:
+
+```bash
+npm run build
+```
+
+Production:
+
+```bash
+npm start
+```
+
+Server:
+
+```text
+http://localhost:5000
+```
+
+API Base URL:
+
+```text
+http://localhost:5000/api/v1
+```
+
+---
+
+## API Features
+
+### Authentication
+
+* Login
+* Refresh Token
+* Logout
+* Current User Profile
+
+### Users
+
+* Create User
+* Update User
+* Deactivate User
+* List Users
+
+(Admin Only)
+
+### Products
+
+* Create Product
+* Update Product
+* Delete Product
+* Restore Product
+* Stock Adjustment
+* Search & Pagination
+* Cloudinary Image Upload
+
+### Customers
+
+* Create Customer
+* Update Customer
+* Delete Customer
+* Restore Customer
+
+### Sales
+
+* Create Sale
+* View Sales
+* Refund Sale
+* Invoice Generation
+
+### Dashboard
+
+* Overall Statistics
+* Revenue Analytics
+* Top Selling Products
+* Low Stock Alerts
+
+---
+
+## Bonus Features Implemented
+
+* Dynamic Database-Driven RBAC
+* Modular Feature-Based Architecture
+* Generic QueryBuilder
+* Global Error Handling
+* Socket.IO Real-Time Events
+* Refund Workflow
+* Soft Delete & Restore
+* Cloudinary Integration
+
+---
+
+## Deployment
+
+Supported Platforms:
+
+* Render
+* Railway
+* Fly.io
+* VPS
+* Docker-Based Hosts
+
+Deployment Checklist:
+
+1. Configure environment variables
+2. Connect MongoDB Atlas
+3. Set correct CLIENT_URL
+4. Deploy application
+5. Run seed script once
+
+```bash
+npx ts-node src/seed.ts
+```
+
+after deployment.
+
+---
+
+## HTTP Status Codes
+
+| Code | Meaning               |
+| ---- | --------------------- |
+| 200  | Success               |
+| 201  | Created               |
+| 400  | Validation Error      |
+| 401  | Unauthorized          |
+| 403  | Forbidden             |
+| 404  | Not Found             |
+| 409  | Conflict              |
+| 500  | Internal Server Error |
+
+---
+
+## Project Highlights
+
+* Enterprise-style architecture
+* Type-safe TypeScript codebase
+* Database-driven permissions
+* Transaction-safe inventory operations
+* Real-time dashboard updates
+* Scalable module organization
+* Production-ready backend foundation
